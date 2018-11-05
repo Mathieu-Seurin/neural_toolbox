@@ -2,7 +2,6 @@ import torch
 from torch import nn
 import torch.nn.functional as F
 from torch.autograd import Variable
-ˇ
 
 # The mlp has to deal with the image features AND text features
 # How do you fuse them ? (concatenation, dot-product, attention)
