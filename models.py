@@ -358,7 +358,7 @@ class FilmedNet(nn.Module):
                 gammas = Variable(torch.zeros(batch_size, self.n_feature_map_per_block).type_as(x.data))
                 betas = Variable(torch.zeros_like(gammas.data).type_as(x.data))
             else: # use film
-                gammas_betas = self.film_gen.forward(text_state, first_layer= i==0, vision=x)
+                gammas_betas = self.film_gen.forward(text_state, first_layer= i==0, visual_integration=x)
                 assert gammas_betas.size(1)%2 == 0, "Problem, more gammas than betas (or vice versa)"
                 middle = gammas_betas.size(1)//2
                 gammas = gammas_betas[:,:middle]

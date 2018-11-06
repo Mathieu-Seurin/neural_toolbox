@@ -122,7 +122,7 @@ class SimpleFilmGen(nn.Module):
 
         #self.bn_output = nn.BatchNorm1d(self.output_mlp, affine=False)
 
-    def forward(self, text, first_layer, vision=None):
+    def forward(self, text, first_layer, visual_integration=None, init_with_vision=None):
         """
         Common interface for all Film Generator
         first_layer indicate that you calling film generator for the first time (needed for init etc...)
@@ -159,12 +159,27 @@ class MultiHopFilmGen(nn.Module):
         vision_reducing_size_mlp = config["vision_reducing_size_mlp"]
 
         if vision_extractor_size_output:
-           reduction_method, _  = choose_reduction_method(vision_reducing_method, vision_extractor_size_output, vision_reducing_size_mlp)
+
+            batch_size = vision_extractor_size_output[0]
+            in_features = vision_extractor_size_output[1]
+            width = vision_extractor_size_output[2]
+
+            self._init_ht_conv = nn.Conv2d(in_channels=in_features, out_channels=64, kernel_size=3, padding=1)
+            self._init_ht_pooling = nn.MaxPool2d(kernel_size=4)
+            in_features = self._init_ht_pooling(self._init_ht_conv(Variable(torch.zeros(*vision_extractor_size_output), volatile=True)))
+            in_features = in_features.view(batch_size, -1).size(1)
+
+            self._init_ht_mlp = nn.Linear(in_features, self.text_size)
+
+            self.init_ht = self.compute_reduction_init
+
         else:
-            self.init_ht = lambda batch_size, _ : Variable(torch.ones(batch_size, self.text_size).type(FloatTensor))
+            self.init_ht = lambda batch : Variable(torch.ones(batch.size(0), self.text_size).type(FloatTensor))
 
         if self.use_feedback:
-            self.vision_reducer_layer = self.choose_reduction_method(vision_reducing_method, )
+            self.vision_reducer_layer = choose_reduction_method(vision_reducing_method,
+                                                                vision_extractor_size_output,
+                                                                vision_reducing_size_mlp=vision_reducing_size_mlp)
         else:
             vision_after_reduce_size = 0
 
@@ -174,17 +189,15 @@ class MultiHopFilmGen(nn.Module):
         # for every feature_map, you generate a beta and a gamma, to do : feature_map*gamma + beta
         # So, for every feature_map, 2 parameters are generated
 
-    def forward(self, text, first_layer, vision=None):
+    def forward(self, text, first_layer, visual_integration=None):
         """
         Common interface for all Film Generator
         first_layer indicate that you calling film generator for the first time (needed for init etc...)
         """
-        batch_size = text.size(0)
-
         # todo : learn init from vision ??
-        # if first layer, reset ht to ones only
+        # if first layer, reset ht to ones only or init with vision, maybe better.
         if first_layer:
-            self.ht = self.init_ht(batch_size, _)
+            self.ht = self.init_ht(visual_integration)
 
         # Compute text features
         text_vec = self.attention(text_seq=text, previous_hidden=self.ht)
@@ -194,7 +207,7 @@ class MultiHopFilmGen(nn.Module):
 
         # Compute feedback loop and fuse
         if self.use_feedback:
-            vision_feat_reduced = self.vision_reducer_layer(vision)
+            vision_feat_reduced = self.vision_reducer_layer(visual_integration)
             film_gen_input = torch.cat((vision_feat_reduced, text_vec), dim=1)
         else:
             film_gen_input = text_vec
@@ -204,9 +217,18 @@ class MultiHopFilmGen(nn.Module):
 
         return gammas_betas
 
-    def compute_reduction_init(self):
-        pass
+    def compute_reduction_init(self, vision_extractor_features):
 
+        # Detach the variable from graph, to avoid changing the features extractor.
+        init_ht = vision_extractor_features.data
+
+        init_ht = Variable(init_ht.type(FloatTensor))
+        init_ht = self._init_ht_pooling(F.relu(self._init_ht_conv(init_ht)))
+
+        init_ht = init_ht.view(init_ht.size(0), -1)
+        init_ht = self._init_ht_mlp(init_ht)
+
+        return init_ht
 
 def init_modules(modules, init='uniform'):
     if init.lower() == 'normal':
