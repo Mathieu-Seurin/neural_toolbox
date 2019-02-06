@@ -8,6 +8,30 @@ from neural_toolbox.gpu_utils import FloatTensor
 from .fusion_utils import TextAttention, choose_reduction_method
 
 
+class Mlp_Modulation(nn.Module):
+
+    def __init__(self, n_in, n_hidden, n_out):
+        super(Mlp_Modulation, self).__init__()
+        self.n_out = n_out
+
+        if n_hidden > 0:
+            self.proj = nn.Sequential(nn.Linear(n_in, n_hidden),nn.ReLU())
+        else:
+            self.proj = lambda x:x
+            n_hidden = n_in
+
+        self.final_fc = nn.Linear(n_hidden, self.n_out*2)
+
+    def forward(self, x):
+
+        x = self.final_fc(self.proj(x))
+
+        betas = x[:,:self.n_out]
+        gammas = x[:,self.n_out:]
+
+        return gammas, betas
+
+
 class FiLM(nn.Module):
     """
     A Feature-wise Linear Modulation Layer from
@@ -39,9 +63,9 @@ class ResidualBlock(nn.Module):
     def forward(self, x):
 
         # Adding coord maps
-        w, h, batch_size = x.size(2), x.size(3), x.size(0)
-        coord = coord_map((w,h)).expand(batch_size, -1, -1, -1).type_as(x)
-        x = torch.cat([x, coord], 1)
+        # w, h, batch_size = x.size(2), x.size(3), x.size(0)
+        # coord = coord_map((w,h)).expand(batch_size, -1, -1, -1).type_as(x)
+        # x = torch.cat([x, coord], 1)
 
         #Before residual connection
         after_proj = self.conv_proj(x)
@@ -62,7 +86,7 @@ class FiLMedResBlock(nn.Module):
 
         super(FiLMedResBlock, self).__init__()
 
-        self.conv_proj = nn.Conv2d(in_dim + 2, out_dim, kernel_size=1, stride=1)
+        self.conv_proj = nn.Conv2d(in_dim, out_dim, kernel_size=1, stride=1)
 
         if with_batchnorm:
             self.bn = nn.BatchNorm2d(out_dim, affine=False)
@@ -80,9 +104,9 @@ class FiLMedResBlock(nn.Module):
     def forward(self, x, gammas, betas):
 
         # Adding coord maps
-        w, h, batch_size = x.size(2), x.size(3), x.size(0)
-        coord = coord_map((w,h)).expand(batch_size, -1, -1, -1).type_as(x)
-        x = torch.cat([x, coord], 1)
+        # w, h, batch_size = x.size(2), x.size(3), x.size(0)
+        # coord = coord_map((w,h)).expand(batch_size, -1, -1, -1).type_as(x)
+        # x = torch.cat([x, coord], 1)
 
         #Before residual connection
         after_proj = self.conv_proj(x)
